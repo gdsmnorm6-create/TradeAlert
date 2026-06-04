@@ -26,7 +26,7 @@ export default function DashboardScreen() {
   const [email, setEmail] = useState('ian@example.com');
   const [password, setPassword] = useState('password123');
   const [businessName, setBusinessName] = useState("Ian's Plumbing");
-  const [businessPhone, setBusinessPhone] = useState('07700 900100');
+  const [businessPhone, setBusinessPhone] = useState('07432870739');
   const [trade, setTrade] = useState('plumber');
   const [callbackWindow, setCallbackWindow] = useState(10);
   const [appointmentWindow, setAppointmentWindow] = useState('4-hour');

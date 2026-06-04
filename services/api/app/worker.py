@@ -8,6 +8,7 @@ from sqlalchemy import select
 from app.config import get_settings
 from app.db import SessionLocal
 from app.models import Message
+from app.services.twilio_messaging import deliver_sms
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("tradealert.worker")
@@ -18,10 +19,9 @@ def process_message(message_id: str) -> None:
         message = db.scalar(select(Message).where(Message.id == message_id))
         if message is None:
             return
-        # Real Twilio sending is intentionally behind provider credentials.
-        message.status = "ready_to_send"
+        deliver_sms(db, message)
         db.commit()
-        logger.info("Prepared outbound SMS %s to %s", message.id, message.to_number)
+        logger.info("Processed outbound SMS %s to %s with status %s", message.id, message.to_number, message.status)
 
 
 def main() -> None:
@@ -39,4 +39,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

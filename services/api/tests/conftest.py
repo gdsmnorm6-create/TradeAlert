@@ -31,6 +31,12 @@ def client() -> TestClient:
 
 
 @pytest.fixture
+def db_session() -> Generator:
+    with SessionLocal() as db:
+        yield db
+
+
+@pytest.fixture
 def auth_headers(client: TestClient) -> dict[str, str]:
     response = client.post(
         "/api/auth/register",
@@ -47,4 +53,3 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     assert response.status_code == 201, response.text
     token = response.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
-

@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 
 from app.models import CallLog, Company, Customer, Message
 from app.services.queue import enqueue_sms_delivery
+from app.services.twilio_messaging import deliver_sms
 
 
 def create_outbound_message(
@@ -26,6 +27,6 @@ def create_outbound_message(
     )
     db.add(message)
     db.flush()
-    enqueue_sms_delivery(message.id)
+    if not enqueue_sms_delivery(message.id):
+        deliver_sms(db, message)
     return message
-

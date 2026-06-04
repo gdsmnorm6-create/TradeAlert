@@ -44,6 +44,7 @@ def test_twilio_missed_call_is_idempotent(client: TestClient, auth_headers: dict
     outbound = [message for message in messages if message["direction"] == "outbound"]
     assert len(outbound) == 1
     assert "Ian's Plumbing" in outbound[0]["body"]
+    assert outbound[0]["status"] in {"queued", "ready_to_send"}
 
 
 def test_jobs_invoices_sumup_and_ocr_flow(client: TestClient, auth_headers: dict[str, str]) -> None:
@@ -104,4 +105,3 @@ def test_openai_realtime_incoming_call_creates_voice_session(
     sessions = client.get("/api/voice-sessions", headers=auth_headers).json()
     assert len(sessions) == 1
     assert sessions[0]["call_id"] == "call_1"
-
