@@ -1,0 +1,14 @@
+{
+  "name": "tradealert",
+  "private": true,
+  "workspaces": [
+    "apps/mobile"
+  ],
+  "scripts": {
+    "api:dev": "cd services/api && uvicorn app.main:app --reload",
+    "api:test": "cd services/api && pytest",
+    "mobile": "npm --workspace apps/mobile run start",
+    "mobile:web": "npm --workspace apps/mobile run web"
+  }
+}
+

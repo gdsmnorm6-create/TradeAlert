@@ -1,0 +1,2 @@
+"""TradeAlert FastAPI service."""
+
