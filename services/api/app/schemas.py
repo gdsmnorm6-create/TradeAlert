@@ -92,6 +92,57 @@ class MessageOut(BaseModel):
     created_at: datetime
 
 
+class DeviceAgentCreate(BaseModel):
+    name: str = "Hermes Android Agent"
+    platform: str = "android"
+    phone_number: str | None = None
+
+
+class DeviceAgentRegistrationOut(BaseModel):
+    agent_id: str
+    token: str
+    company_id: str
+    business_phone: str
+
+
+class DeviceAgentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str
+    platform: str
+    phone_number: str | None
+    last_seen_at: datetime | None
+    revoked_at: datetime | None
+    created_at: datetime
+
+
+class DeviceMissedCallRequest(BaseModel):
+    caller_number: str
+    device_call_id: str | None = None
+    missed_at: datetime | None = None
+    sim_number: str | None = None
+    raw_payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class DeviceSmsTask(BaseModel):
+    message_id: str
+    to_number: str
+    body: str
+
+
+class DeviceMissedCallResponse(BaseModel):
+    call_id: str
+    already_processed: bool
+    sms: DeviceSmsTask | None
+
+
+class DeviceDeliveryRequest(BaseModel):
+    status: str
+    provider_sid: str | None = None
+    error: str | None = None
+
+
 class SendMessageRequest(BaseModel):
     to_number: str
     body: str = Field(min_length=1, max_length=1600)
@@ -199,4 +250,3 @@ class VoiceSessionOut(BaseModel):
     status: str
     transcript_summary: str | None
     created_at: datetime
-

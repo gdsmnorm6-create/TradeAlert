@@ -14,6 +14,7 @@ from app.models import (
     Company,
     CompanyTemplate,
     Customer,
+    DeviceAgent,
     Invoice,
     Job,
     Message,
@@ -24,6 +25,7 @@ from app.models import (
     Template,
     User,
     VoiceSession,
+    now_utc,
 )
 from app.schemas import (
     AuthResponse,
@@ -38,6 +40,13 @@ from app.schemas import (
     JobOut,
     LoginRequest,
     MessageOut,
+    DeviceAgentCreate,
+    DeviceAgentOut,
+    DeviceAgentRegistrationOut,
+    DeviceDeliveryRequest,
+    DeviceMissedCallRequest,
+    DeviceMissedCallResponse,
+    DeviceSmsTask,
     ReceiptOut,
     ReceiptRequest,
     RegisterRequest,
@@ -51,6 +60,7 @@ from app.schemas import (
     VoiceSessionOut,
 )
 from app.security import create_access_token, get_current_user, hash_password, verify_password
+from app.services.device_agent import authenticate_agent, hash_agent_token, make_agent_token
 from app.services.messages import create_outbound_message
 from app.services.phone import normalize_phone
 from app.services.provisioning import assign_twilio_number
@@ -88,6 +98,31 @@ def company_template_out(company: Company) -> TemplateOut:
     if template is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not assigned")
     return TemplateOut(id=template.id, trade=company.trade, body=template.body, variables=template.variables)
+
+
+def create_device_sms_message(
+    db: Session,
+    *,
+    company: Company,
+    customer: Customer,
+    call: CallLog,
+    body: str,
+) -> Message:
+    message = Message(
+        company_id=company.id,
+        customer_id=customer.id,
+        call_log_id=call.id,
+        direction="outbound",
+        from_number=company.business_phone,
+        to_number=customer.phone,
+        body=body,
+        provider="android_agent",
+        status="pending_device_send",
+        raw_payload={"delivery": "device_agent"},
+    )
+    db.add(message)
+    db.flush()
+    return message
 
 
 @router.post("/auth/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
@@ -228,6 +263,173 @@ def list_messages(user: User = Depends(get_current_user), db: Session = Depends(
     return list(
         db.scalars(select(Message).where(Message.company_id == company.id).order_by(Message.created_at.desc()))
     )
+
+
+@router.get("/device-agent", response_model=list[DeviceAgentOut])
+def list_device_agents(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[DeviceAgent]:
+    company = current_company(user)
+    return list(
+        db.scalars(
+            select(DeviceAgent)
+            .where(DeviceAgent.company_id == company.id)
+            .order_by(DeviceAgent.created_at.desc())
+        )
+    )
+
+
+@router.post("/device-agent/register", response_model=DeviceAgentRegistrationOut, status_code=status.HTTP_201_CREATED)
+def register_device_agent(
+    payload: DeviceAgentCreate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> DeviceAgentRegistrationOut:
+    company = current_company(user)
+    try:
+        phone_number = normalize_phone(payload.phone_number) if payload.phone_number else company.business_phone
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    token = make_agent_token()
+    agent = DeviceAgent(
+        company_id=company.id,
+        token_hash=hash_agent_token(token),
+        name=payload.name,
+        platform=payload.platform,
+        phone_number=phone_number,
+        last_seen_at=now_utc(),
+    )
+    db.add(agent)
+    db.add(
+        AuditEvent(
+            company_id=company.id,
+            actor_user_id=user.id,
+            event_type="device_agent.registered",
+            payload={"agent_id": agent.id},
+        )
+    )
+    db.commit()
+    db.refresh(agent)
+    return DeviceAgentRegistrationOut(
+        agent_id=agent.id,
+        token=token,
+        company_id=company.id,
+        business_phone=company.business_phone,
+    )
+
+
+@router.post("/device-agent/heartbeat")
+def device_agent_heartbeat(
+    agent: DeviceAgent = Depends(authenticate_agent),
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    db.commit()
+    return {"status": "ok", "agent_id": agent.id}
+
+
+@router.post("/device-agent/missed-call", response_model=DeviceMissedCallResponse, status_code=status.HTTP_201_CREATED)
+def device_agent_missed_call(
+    payload: DeviceMissedCallRequest,
+    agent: DeviceAgent = Depends(authenticate_agent),
+    db: Session = Depends(get_db),
+) -> DeviceMissedCallResponse:
+    company = db.get(Company, agent.company_id)
+    if company is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent company not found")
+    try:
+        caller = normalize_phone(payload.caller_number)
+        called = normalize_phone(payload.sim_number) if payload.sim_number else company.business_phone
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+    event_key = payload.device_call_id or f"{caller}:{payload.missed_at.isoformat() if payload.missed_at else 'unknown'}"
+    call_sid = f"android:{agent.id}:{event_key}"
+    call = db.scalar(select(CallLog).where(CallLog.call_sid == call_sid))
+    already_processed = call is not None
+    sms_task = None
+
+    if call is None:
+        call = CallLog(
+            company_id=company.id,
+            call_sid=call_sid,
+            caller_number=caller,
+            called_number=called,
+            status="missed",
+            missed=True,
+            raw_payload={
+                "source": "android_agent",
+                "agent_id": agent.id,
+                "missed_at": payload.missed_at.isoformat() if payload.missed_at else None,
+                "raw_payload": payload.raw_payload,
+            },
+        )
+        db.add(call)
+        db.flush()
+
+        customer = upsert_customer_by_phone(db, company.id, caller)
+        body = render_template(
+            company.company_template.body,
+            business_name=company.business_name,
+            callback_window_minutes=company.callback_window_minutes,
+            appointment_window=company.appointment_window,
+        )
+        message = create_device_sms_message(db, company=company, customer=customer, call=call, body=body)
+        sms_task = DeviceSmsTask(message_id=message.id, to_number=message.to_number, body=message.body)
+
+    db.commit()
+    return DeviceMissedCallResponse(call_id=call.id, already_processed=already_processed, sms=sms_task)
+
+
+@router.get("/device-agent/pending-messages", response_model=list[DeviceSmsTask])
+def device_agent_pending_messages(
+    agent: DeviceAgent = Depends(authenticate_agent),
+    db: Session = Depends(get_db),
+) -> list[DeviceSmsTask]:
+    messages = db.scalars(
+        select(Message).where(
+            Message.company_id == agent.company_id,
+            Message.provider == "android_agent",
+            Message.status == "pending_device_send",
+        )
+    )
+    db.commit()
+    return [
+        DeviceSmsTask(
+            message_id=message.id,
+            to_number=message.to_number,
+            body=message.body,
+        )
+        for message in messages
+    ]
+
+
+@router.post("/device-agent/messages/{message_id}/delivery", response_model=MessageOut)
+def device_agent_message_delivery(
+    message_id: str,
+    payload: DeviceDeliveryRequest,
+    agent: DeviceAgent = Depends(authenticate_agent),
+    db: Session = Depends(get_db),
+) -> Message:
+    message = db.scalar(
+        select(Message).where(
+            Message.id == message_id,
+            Message.company_id == agent.company_id,
+            Message.provider == "android_agent",
+        )
+    )
+    if message is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
+    message.status = payload.status
+    message.provider_sid = payload.provider_sid
+    message.raw_payload = {
+        **(message.raw_payload or {}),
+        "device_delivery": {
+            "agent_id": agent.id,
+            "status": payload.status,
+            "error": payload.error,
+        },
+    }
+    db.commit()
+    db.refresh(message)
+    return message
 
 
 @router.post("/messages/send", response_model=MessageOut, status_code=status.HTTP_201_CREATED)
@@ -593,4 +795,3 @@ def list_voice_sessions(user: User = Depends(get_current_user), db: Session = De
     return list(
         db.scalars(select(VoiceSession).where(VoiceSession.company_id == company.id).order_by(VoiceSession.created_at.desc()))
     )
-

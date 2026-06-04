@@ -138,6 +138,20 @@ class Message(Base):
     call_log: Mapped[CallLog | None] = relationship(back_populates="messages")
 
 
+class DeviceAgent(Base):
+    __tablename__ = "device_agents"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    company_id: Mapped[str] = mapped_column(ForeignKey("companies.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), default="Android Agent")
+    platform: Mapped[str] = mapped_column(String(64), default="android")
+    phone_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
 class Job(Base):
     __tablename__ = "jobs"
 
@@ -264,4 +278,3 @@ class AuditEvent(Base):
     event_type: Mapped[str] = mapped_column(String(128))
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
-
