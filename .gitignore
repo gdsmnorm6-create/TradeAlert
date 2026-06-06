@@ -5,11 +5,15 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .expo/
+.gradle/
 node_modules/
 dist/
 build/
 coverage/
 logs/
+local.properties
+*.apk
+*.aab
 *.pyc
 *.sqlite
 *.db

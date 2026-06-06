@@ -1,12 +1,14 @@
 # Hermes Android Agent Build Brief
 
-Build a private Android companion app that runs on the tradesman's Android phone and sends missed-call SMS replies from the phone's own SIM. This avoids Twilio/Telnyx for the MVP.
+Build a private Android companion app that runs on the tradesman's Android phone and sends missed-call SMS replies from the phone's own SIM. This avoids Twilio, USB dongles, and any home-PC dependency for the MVP.
+
+The v1 source now lives in `apps/android-agent`.
 
 ## Backend Contract
 
-Base URL: the TradeAlert API, for example `http://VPN_HOST:8000`.
+Base URL: the TradeAlert API on the VPS/VPN, for example `http://VPN_HOST:8000`.
 
-Register an agent from the logged-in TradeAlert mobile/web app:
+The Android app can log in with `/api/auth/login`, then register itself:
 
 ```http
 POST /api/device-agent/register
@@ -20,7 +22,7 @@ Content-Type: application/json
 }
 ```
 
-Store the returned `token` securely on the Android device. It is shown once.
+Store the returned `token` on the Android device. It is shown once by the backend.
 
 Report a missed call:
 
@@ -81,7 +83,7 @@ X-TradeAlert-Agent-Token: <agent_token>
 
 ## Android MVP Requirements
 
-- Kotlin app, private install first.
+- Kotlin app in `apps/android-agent`, private install first.
 - Foreground service with persistent notification while monitoring.
 - Runtime permissions:
   - `READ_CALL_LOG`
@@ -100,15 +102,15 @@ X-TradeAlert-Agent-Token: <agent_token>
 - Never send SMS to premium-rate, emergency, withheld, or invalid numbers.
 - Never send more than one message for the same device call ID.
 - Respect backend `already_processed=true`.
-- If backend is unreachable, queue locally and retry with backoff; do not spam-send.
+- If backend is unreachable before SMS is sent, retry the missed-call event; do not spam-send.
+- If SMS is sent but delivery reporting fails, reconcile status later without sending a duplicate.
 
 ## MVP Acceptance Test
 
 1. Install Hermes Android Agent on the phone with SIM number `+447432870739`.
-2. Register the agent against a TradeAlert company.
+2. Enter the VPS/VPN API URL and register the agent against a TradeAlert company.
 3. Call the phone from another number and let it miss.
 4. Agent reports the missed call to TradeAlert.
 5. TradeAlert returns the rendered template.
 6. Agent sends SMS from the phone SIM.
 7. TradeAlert dashboard shows the missed call and message status `sent`.
-
