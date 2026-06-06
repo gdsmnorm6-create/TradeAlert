@@ -6,9 +6,14 @@ The VPS/VPN runs the TradeAlert API. This Android app runs on the tradesman's ph
 
 ## Build
 
-Open `apps/android-agent` in Android Studio and build the `app` module.
+Open `apps/android-agent` in Android Studio and build the `app` module, or run:
 
-This workspace currently does not include Android Studio, the Android SDK, or Gradle, so APK builds are expected to happen on a machine with Android tooling installed.
+```powershell
+cd apps/android-agent
+.\gradlew.bat assembleDebug
+```
+
+The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 
 ## First Test
 

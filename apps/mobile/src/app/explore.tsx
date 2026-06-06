@@ -1,9 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import type { ReactNode } from 'react';
+import { Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import type { Customer, Job } from '@/lib/types';
+
+const screwfixUrl = 'https://www.screwfix.com/login';
 
 export default function OperationsScreen() {
   const { token } = useAuth();
@@ -29,37 +33,47 @@ export default function OperationsScreen() {
     queryFn: () => api.stock(token ?? ''),
     enabled: Boolean(token),
   });
-  const voiceQuery = useQuery({
-    queryKey: ['voice', token],
-    queryFn: () => api.voiceSessions(token ?? ''),
-    enabled: Boolean(token),
-  });
+
+  const firstCustomer = customersQuery.data?.[0];
+  const firstJob = jobsQuery.data?.[0];
 
   const createCustomer = useMutation({
     mutationFn: () =>
       api.createCustomer(token ?? '', {
         name: 'Sarah Customer',
         phone: '07700 900333',
-        address: '10 High Street',
+        address: '10 High Street, Birmingham',
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['customers', token] }),
   });
 
   const createJob = useMutation({
-    mutationFn: () =>
-      api.createJob(token ?? '', {
-        customer_id: customersQuery.data?.[0]?.id,
+    mutationFn: async () => {
+      let customer = firstCustomer;
+      if (!customer) {
+        customer = await api.createCustomer(token ?? '', {
+          name: 'Sarah Customer',
+          phone: '07700 900333',
+          address: '10 High Street, Birmingham',
+        });
+      }
+      return api.createJob(token ?? '', {
+        customer_id: customer.id,
         title: 'Replace kitchen tap',
-        description: 'Created from the mobile operations tab.',
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['jobs', token] }),
+        description: 'Customer wants photos attached for invoice and possible report.',
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customers', token] });
+      queryClient.invalidateQueries({ queryKey: ['jobs', token] });
+    },
   });
 
   const createInvoice = useMutation({
     mutationFn: () =>
       api.createInvoice(token ?? '', {
-        customer_id: customersQuery.data?.[0]?.id,
-        job_id: jobsQuery.data?.[0]?.id,
+        customer_id: firstCustomer?.id,
+        job_id: firstJob?.id,
         amount_minor: 12500,
       }),
     onSuccess: () => {
@@ -82,9 +96,9 @@ export default function OperationsScreen() {
   const createReceipt = useMutation({
     mutationFn: () =>
       api.createReceipt(token ?? '', {
-        filename: 'receipt.jpg',
-        job_id: jobsQuery.data?.[0]?.id,
-        raw_text: 'Builders Merchant copper pipe 25.00',
+        filename: 'job-photo-receipt.jpg',
+        job_id: firstJob?.id,
+        raw_text: 'Screwfix copper pipe fittings 25.00',
         amount_minor: 2500,
       }),
   });
@@ -93,197 +107,383 @@ export default function OperationsScreen() {
     return (
       <SafeAreaView style={styles.screen}>
         <View style={styles.content}>
-          <Text style={styles.title}>Operations</Text>
-          <Text style={styles.subtle}>Sign in on the dashboard to use jobs, invoices, stock, OCR, and voice.</Text>
+          <Text style={styles.kicker}>Operations</Text>
+          <Text style={styles.title}>Sign in first.</Text>
+          <Text style={styles.subtle}>Jobs, invoices, photos, stock, and reports unlock after login.</Text>
         </View>
       </SafeAreaView>
     );
   }
 
+  const customers = customersQuery.data ?? [];
+  const jobs = jobsQuery.data ?? [];
+  const invoices = invoicesQuery.data ?? [];
+  const stock = stockQuery.data ?? [];
+  const lowStock = stock.filter((item) => item.quantity <= item.reorder_level);
+
   return (
     <SafeAreaView style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content}>
-        <View>
+        <View style={styles.header}>
           <Text style={styles.kicker}>Operations</Text>
-          <Text style={styles.title}>Jobs, money, materials, voice.</Text>
+          <Text style={styles.title}>Jobs, parts, photos, money.</Text>
           <Text style={styles.subtle}>
-            The v2 and v3 surfaces are wired to the same backend contracts as the missed-call wedge.
+            The extra bits stay separated so the phone screen does not become a junk drawer.
           </Text>
         </View>
 
-        <View style={styles.grid}>
-          <ActionPanel
-            title="Customers"
-            metric={String(customersQuery.data?.length ?? 0)}
-            action="Create demo customer"
-            onPress={() => createCustomer.mutate()}
-            loading={createCustomer.isPending}
-            rows={(customersQuery.data ?? []).slice(0, 3).map((customer) => `${customer.name ?? 'Customer'} - ${customer.phone}`)}
-          />
-          <ActionPanel
-            title="Jobs"
-            metric={String(jobsQuery.data?.length ?? 0)}
-            action="Create job"
-            onPress={() => createJob.mutate()}
-            loading={createJob.isPending}
-            rows={(jobsQuery.data ?? []).slice(0, 3).map((job) => `${job.title} - ${job.status}`)}
-          />
-          <ActionPanel
-            title="Invoices"
-            metric={String(invoicesQuery.data?.length ?? 0)}
-            action="Create SumUp invoice"
-            onPress={() => createInvoice.mutate()}
-            loading={createInvoice.isPending}
-            rows={(invoicesQuery.data ?? []).slice(0, 3).map((invoice) => `${invoice.number} - ${invoice.status}`)}
-          />
-          <ActionPanel
-            title="Stock"
-            metric={String(stockQuery.data?.length ?? 0)}
-            action="Add stock item"
-            onPress={() => createStock.mutate()}
-            loading={createStock.isPending}
-            rows={(stockQuery.data ?? []).slice(0, 3).map((item) => `${item.name} - ${item.quantity} in van`)}
-          />
-          <ActionPanel
-            title="Receipt OCR"
-            metric={createReceipt.data?.status ?? 'Ready'}
-            action="Process receipt"
-            onPress={() => createReceipt.mutate()}
-            loading={createReceipt.isPending}
-            rows={createReceipt.data ? [`Receipt ${createReceipt.data.receipt_upload_id.slice(0, 8)} processed`] : []}
-          />
-          <ActionPanel
-            title="Voice AI"
-            metric={String(voiceQuery.data?.length ?? 0)}
-            action="Refresh sessions"
-            onPress={() => queryClient.invalidateQueries({ queryKey: ['voice', token] })}
-            rows={(voiceQuery.data ?? []).slice(0, 3).map((session) => `${session.call_id} - ${session.status}`)}
-          />
+        <View style={styles.summaryBand}>
+          <SummaryNumber label="Jobs" value={String(jobs.length)} />
+          <SummaryNumber label="Invoices" value={String(invoices.length)} />
+          <SummaryNumber label="Stock" value={String(stock.length)} />
+          <SummaryNumber label="Low" value={String(lowStock.length)} />
         </View>
+
+        <Section
+          title="Jobs"
+          detail="Customer, address, photos, notes, and invoice trail."
+          actionLabel="Create test job"
+          loading={createJob.isPending}
+          onAction={() => createJob.mutate()}>
+          {jobs.length === 0 ? (
+            <Empty text="No jobs yet." />
+          ) : (
+            jobs.slice(0, 4).map((job) => {
+              const customer = customers.find((item) => item.id === job.customer_id);
+              return <JobRow key={job.id} job={job} customer={customer} />;
+            })
+          )}
+        </Section>
+
+        <Section
+          title="Invoices and photos"
+          detail="Take job photos, send SumUp links, and prepare an insurance report if needed."
+          actionLabel="Create invoice"
+          loading={createInvoice.isPending}
+          onAction={() => createInvoice.mutate()}>
+          <ActionStrip
+            actions={[
+              { label: 'Add photo note', onPress: () => createReceipt.mutate(), busy: createReceipt.isPending },
+              { label: 'Insurance report', onPress: () => createReceipt.mutate(), busy: createReceipt.isPending },
+            ]}
+          />
+          {invoices.length === 0 ? (
+            <Empty text="No invoices yet." />
+          ) : (
+            invoices.slice(0, 4).map((invoice) => (
+              <View key={invoice.id} style={styles.row}>
+                <Text style={styles.rowTitle}>{invoice.number}</Text>
+                <Text style={styles.rowDetail}>
+                  {money(invoice.amount_minor, invoice.currency)} - {invoice.status}
+                </Text>
+              </View>
+            ))
+          )}
+        </Section>
+
+        <Section
+          title="Van stock"
+          detail="Keep the van count simple, then use Screwfix for the real basket and collection."
+          actionLabel="Add stock item"
+          loading={createStock.isPending}
+          onAction={() => createStock.mutate()}>
+          <ActionStrip actions={[{ label: 'Open Screwfix', onPress: () => Linking.openURL(screwfixUrl) }]} />
+          {stock.length === 0 ? (
+            <Empty text="No van stock yet." />
+          ) : (
+            stock.slice(0, 5).map((item) => (
+              <View key={item.id} style={styles.row}>
+                <Text style={styles.rowTitle}>{item.name}</Text>
+                <Text style={styles.rowDetail}>
+                  {item.quantity} in van - reorder at {item.reorder_level}
+                </Text>
+              </View>
+            ))
+          )}
+        </Section>
+
+        <Section
+          title="Customers"
+          detail="Addresses open straight into Google Maps."
+          actionLabel="Create customer"
+          loading={createCustomer.isPending}
+          onAction={() => createCustomer.mutate()}>
+          {customers.length === 0 ? (
+            <Empty text="No customers yet." />
+          ) : (
+            customers.slice(0, 5).map((customer) => <CustomerRow key={customer.id} customer={customer} />)
+          )}
+        </Section>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-function ActionPanel({
+function Section({
   title,
-  metric,
-  action,
+  detail,
+  actionLabel,
   loading,
-  rows,
-  onPress,
+  onAction,
+  children,
 }: {
   title: string;
-  metric: string;
-  action: string;
+  detail: string;
+  actionLabel: string;
   loading?: boolean;
-  rows: string[];
-  onPress: () => void;
+  onAction: () => void;
+  children: ReactNode;
 }) {
   return (
     <View style={styles.panel}>
-      <View style={styles.panelHeader}>
-        <Text style={styles.panelTitle}>{title}</Text>
-        <Text style={styles.metric}>{metric}</Text>
+      <View style={styles.sectionHeader}>
+        <View style={styles.sectionTitleWrap}>
+          <Text style={styles.panelTitle}>{title}</Text>
+          <Text style={styles.subtle}>{detail}</Text>
+        </View>
+        <Pressable style={[styles.smallButton, loading && styles.disabled]} disabled={loading} onPress={onAction}>
+          <Text style={styles.smallButtonText}>{loading ? 'Working' : actionLabel}</Text>
+        </Pressable>
       </View>
-      <Pressable style={[styles.button, loading && styles.disabled]} disabled={loading} onPress={onPress}>
-        <Text style={styles.buttonText}>{loading ? 'Working...' : action}</Text>
-      </Pressable>
-      {rows.length === 0 ? (
-        <Text style={styles.subtle}>No records yet</Text>
-      ) : (
-        rows.map((row) => (
-          <Text key={row} style={styles.row} numberOfLines={2}>
-            {row}
-          </Text>
-        ))
-      )}
+      {children}
     </View>
   );
 }
 
+function ActionStrip({ actions }: { actions: { label: string; onPress: () => void; busy?: boolean }[] }) {
+  return (
+    <View style={styles.actionStrip}>
+      {actions.map((action) => (
+        <Pressable
+          key={action.label}
+          style={[styles.secondaryButton, action.busy && styles.disabled]}
+          disabled={action.busy}
+          onPress={action.onPress}>
+          <Text style={styles.secondaryButtonText}>{action.busy ? 'Working' : action.label}</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+function JobRow({ job, customer }: { job: Job; customer?: Customer }) {
+  const address = customer?.address;
+  return (
+    <View style={styles.row}>
+      <Text style={styles.rowTitle}>{job.title}</Text>
+      <Text style={styles.rowDetail}>
+        {customer?.name ?? 'Customer'} - {job.status}
+      </Text>
+      {address ? (
+        <Pressable style={styles.linkButton} onPress={() => openMaps(address)}>
+          <Text style={styles.linkButtonText}>Open address in Google Maps</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+function CustomerRow({ customer }: { customer: Customer }) {
+  return (
+    <View style={styles.row}>
+      <Text style={styles.rowTitle}>{customer.name ?? 'Customer'}</Text>
+      <Text style={styles.rowDetail}>{customer.phone}</Text>
+      {customer.address ? (
+        <Pressable style={styles.linkButton} onPress={() => openMaps(customer.address ?? '')}>
+          <Text style={styles.linkButtonText}>{customer.address}</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+function SummaryNumber({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.summaryItem}>
+      <Text style={styles.summaryValue}>{value}</Text>
+      <Text style={styles.summaryLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function Empty({ text }: { text: string }) {
+  return <Text style={styles.emptyText}>{text}</Text>;
+}
+
+function openMaps(address: string) {
+  const query = encodeURIComponent(address);
+  Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
+}
+
+function money(amountMinor: number, currency: string) {
+  return new Intl.NumberFormat('en-GB', { style: 'currency', currency }).format(amountMinor / 100);
+}
+
+const palette = {
+  surface: '#f4f2ee',
+  card: '#ffffff',
+  ink: '#1c2326',
+  muted: '#5f6a70',
+  border: '#dfddd5',
+  green: '#0f766e',
+  greenSoft: '#e0f4f1',
+};
+
+const baseShadow = Platform.select({
+  ios: {
+    shadowColor: '#1c2326',
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  android: { elevation: 2 },
+  default: {},
+});
+
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#f6f7f9',
+    backgroundColor: palette.surface,
   },
   content: {
     padding: 18,
     paddingTop: Platform.OS === 'web' ? 86 : 18,
-    gap: 16,
+    gap: 14,
     maxWidth: 980,
     width: '100%',
     alignSelf: 'center',
   },
+  header: {
+    gap: 8,
+  },
   kicker: {
-    color: '#007a61',
-    fontWeight: '800',
-    fontSize: 14,
+    color: palette.green,
+    fontWeight: '900',
+    fontSize: 12,
     textTransform: 'uppercase',
+    letterSpacing: 0,
   },
   title: {
-    color: '#17202a',
-    fontSize: 28,
-    fontWeight: '800',
-    lineHeight: 34,
+    color: palette.ink,
+    fontSize: 30,
+    fontWeight: '900',
+    lineHeight: 36,
   },
   subtle: {
-    color: '#596674',
+    color: palette.muted,
     fontSize: 14,
     lineHeight: 20,
   },
-  grid: {
+  summaryBand: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: 10,
+  },
+  summaryItem: {
+    flexGrow: 1,
+    flexBasis: 76,
+    backgroundColor: palette.ink,
+    borderRadius: 8,
+    padding: 12,
+    minHeight: 78,
+    justifyContent: 'center',
+  },
+  summaryValue: {
+    color: palette.card,
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  summaryLabel: {
+    color: '#b9c7c3',
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    marginTop: 4,
   },
   panel: {
-    flexGrow: 1,
-    flexBasis: 260,
-    backgroundColor: '#ffffff',
+    backgroundColor: palette.card,
     borderRadius: 8,
     padding: 16,
     gap: 12,
     borderWidth: 1,
-    borderColor: '#e2e6ea',
-    minHeight: 190,
+    borderColor: palette.border,
+    ...baseShadow,
   },
-  panelHeader: {
+  sectionHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: 12,
   },
-  panelTitle: {
-    color: '#17202a',
-    fontWeight: '800',
-    fontSize: 18,
+  sectionTitleWrap: {
+    flex: 1,
+    gap: 4,
   },
-  metric: {
-    color: '#007a61',
+  panelTitle: {
+    color: palette.ink,
     fontWeight: '900',
     fontSize: 18,
   },
-  button: {
-    backgroundColor: '#007a61',
-    minHeight: 44,
+  smallButton: {
+    backgroundColor: palette.green,
     borderRadius: 8,
+    minHeight: 38,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    flexShrink: 0,
+  },
+  smallButtonText: {
+    color: palette.card,
+    fontWeight: '900',
+    fontSize: 13,
+  },
+  actionStrip: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  secondaryButton: {
+    backgroundColor: palette.greenSoft,
+    borderRadius: 8,
+    minHeight: 38,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 12,
   },
-  buttonText: {
-    color: '#ffffff',
-    fontWeight: '800',
+  secondaryButtonText: {
+    color: palette.green,
+    fontWeight: '900',
+    fontSize: 13,
   },
   disabled: {
     opacity: 0.6,
   },
   row: {
     borderTopWidth: 1,
-    borderTopColor: '#edf0f3',
-    paddingTop: 10,
-    color: '#42505f',
+    borderTopColor: '#eeeae2',
+    paddingTop: 12,
+    gap: 5,
+  },
+  rowTitle: {
+    color: palette.ink,
+    fontWeight: '900',
+    fontSize: 15,
+  },
+  rowDetail: {
+    color: palette.muted,
     lineHeight: 19,
+  },
+  linkButton: {
+    alignSelf: 'flex-start',
+    paddingVertical: 5,
+  },
+  linkButtonText: {
+    color: palette.green,
+    fontWeight: '900',
+  },
+  emptyText: {
+    color: palette.muted,
+    paddingTop: 8,
   },
 });

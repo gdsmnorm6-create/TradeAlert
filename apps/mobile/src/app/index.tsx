@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { ComponentProps } from 'react';
 import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -57,6 +58,16 @@ export default function DashboardScreen() {
     queryFn: () => api.messages(token ?? ''),
     enabled: Boolean(token),
   });
+  const jobsQuery = useQuery({
+    queryKey: ['jobs', token],
+    queryFn: () => api.jobs(token ?? ''),
+    enabled: Boolean(token),
+  });
+  const stockQuery = useQuery({
+    queryKey: ['stock', token],
+    queryFn: () => api.stock(token ?? ''),
+    enabled: Boolean(token),
+  });
 
   const authMutation = useMutation({
     mutationFn: async () => {
@@ -87,12 +98,16 @@ export default function DashboardScreen() {
     },
   });
 
-  const templateText = templateDraft || templateQuery.data?.body || '';
   const missedCalls = callsQuery.data ?? [];
   const outboundMessages = useMemo(
     () => (messagesQuery.data ?? []).filter((message) => message.direction === 'outbound'),
     [messagesQuery.data],
   );
+  const sentMessages = useMemo(
+    () => outboundMessages.filter((message) => message.status === 'sent'),
+    [outboundMessages],
+  );
+  const templateText = templateDraft || templateQuery.data?.body || '';
 
   if (!bootstrapped) {
     return (
@@ -108,14 +123,14 @@ export default function DashboardScreen() {
         <ScrollView contentContainerStyle={styles.content}>
           <View style={styles.header}>
             <Text style={styles.kicker}>TradeAlert</Text>
-            <Text style={styles.title}>Turn missed calls into booked jobs.</Text>
+            <Text style={styles.title}>Your phone catches the missed calls.</Text>
             <Text style={styles.subtle}>
-              Dedicated Twilio number, trade-aware SMS, and job admin in one mobile workspace.
+              Android agent on the trade phone, VPS dashboard for the trail, no Twilio or dongles.
             </Text>
           </View>
 
           <View style={styles.segment}>
-            <SegmentButton active={mode === 'signup'} label="Signup" onPress={() => setMode('signup')} />
+            <SegmentButton active={mode === 'signup'} label="Create" onPress={() => setMode('signup')} />
             <SegmentButton active={mode === 'login'} label="Login" onPress={() => setMode('login')} />
           </View>
 
@@ -136,7 +151,13 @@ export default function DashboardScreen() {
                 <ChipRow values={appointmentWindows} selected={appointmentWindow} onSelect={setAppointmentWindow} />
               </>
             )}
-            <Input label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
+            <Input
+              label="Email"
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+              keyboardType="email-address"
+            />
             <Input label="Password" value={password} onChangeText={setPassword} secureTextEntry />
             <PrimaryButton
               label={mode === 'signup' ? 'Create company' : 'Sign in'}
@@ -151,6 +172,7 @@ export default function DashboardScreen() {
   }
 
   const company = companyQuery.data ?? meQuery.data?.company;
+  const agentStatus = sentMessages.length > 0 || missedCalls.length > 0 ? 'Live on Android' : 'Ready to test';
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -158,24 +180,39 @@ export default function DashboardScreen() {
         <View style={styles.topbar}>
           <View style={styles.flexShrink}>
             <Text style={styles.kicker}>TradeAlert</Text>
-            <Text style={styles.title}>{company?.business_name ?? 'Dashboard'}</Text>
+            <Text style={styles.title}>{company?.business_name ?? 'Today'}</Text>
+            <Text style={styles.subtle}>
+              {company?.business_phone ?? 'Business phone'} is the line your customers already know.
+            </Text>
           </View>
           <Pressable style={styles.signOutButton} onPress={() => setToken(null)}>
             <Text style={styles.signOutText}>Sign out</Text>
           </Pressable>
         </View>
 
-        <View style={styles.statsGrid}>
-          <Metric label="Twilio number" value={company?.twilio_number ?? 'Pending'} />
-          <Metric label="Missed calls" value={String(missedCalls.length)} />
-          <Metric label="Queued replies" value={String(outboundMessages.length)} />
-          <Metric label="Subscription" value={company?.subscription_status ?? 'Unknown'} />
+        <View style={styles.agentPanel}>
+          <View style={styles.statusRow}>
+            <Text style={styles.agentPanelTitle}>Phone agent</Text>
+            <StatusPill label={agentStatus} tone="good" />
+          </View>
+          <Text style={styles.agentText}>
+            Missed calls are detected on the Android phone. SMS replies are sent from the phone SIM.
+          </Text>
+          <View style={styles.statsGrid}>
+            <Metric label="Missed calls" value={String(missedCalls.length)} />
+            <Metric label="SMS sent" value={String(sentMessages.length)} />
+            <Metric label="Open jobs" value={String(jobsQuery.data?.length ?? 0)} />
+            <Metric label="Van items" value={String(stockQuery.data?.length ?? 0)} />
+          </View>
         </View>
 
         <View style={styles.panel}>
           <View style={styles.panelHeader}>
-            <Text style={styles.panelTitle}>Missed-call reply</Text>
-            <Text style={styles.subtle}>{company?.trade?.replace('_', ' ')}</Text>
+            <View>
+              <Text style={styles.panelTitle}>Missed-call reply</Text>
+              <Text style={styles.subtle}>{company?.trade?.replace('_', ' ') ?? 'trade'} template</Text>
+            </View>
+            <StatusPill label={`${company?.callback_window_minutes ?? 10} min`} tone="neutral" />
           </View>
           <TextInput
             value={templateText}
@@ -184,27 +221,34 @@ export default function DashboardScreen() {
             style={[styles.input, styles.templateInput]}
           />
           <PrimaryButton
-            label="Save template"
+            label="Save reply wording"
             loading={saveTemplateMutation.isPending}
             onPress={() => saveTemplateMutation.mutate()}
           />
           {saveTemplateMutation.error && <Text style={styles.error}>{saveTemplateMutation.error.message}</Text>}
         </View>
 
+        <View style={styles.workflowGrid}>
+          <FeatureTile title="Jobs" detail="Create jobs from missed calls, add address, photos, and notes." />
+          <FeatureTile title="Invoices" detail="Attach job photos, send SumUp links, prepare insurance reports." />
+          <FeatureTile title="Van stock" detail="Track fittings in the van and prep a Screwfix basket." />
+          <FeatureTile title="Maps" detail="Tap customer addresses to open Google Maps." />
+        </View>
+
         <ListPanel
           title="Recent missed calls"
           empty="No missed calls yet"
-          rows={missedCalls.map((call) => ({
+          rows={missedCalls.slice(0, 4).map((call) => ({
             id: call.id,
             title: call.caller_number,
-            detail: `${call.status} -> ${new Date(call.created_at).toLocaleString()}`,
+            detail: `${call.status} - ${new Date(call.created_at).toLocaleString()}`,
           }))}
         />
 
         <ListPanel
-          title="SMS queue"
+          title="Recent SMS replies"
           empty="No SMS replies yet"
-          rows={outboundMessages.slice(0, 5).map((message) => ({
+          rows={outboundMessages.slice(0, 4).map((message) => ({
             id: message.id,
             title: message.to_number,
             detail: `${message.status}: ${message.body}`,
@@ -215,7 +259,7 @@ export default function DashboardScreen() {
   );
 }
 
-function Input(props: React.ComponentProps<typeof TextInput> & { label: string }) {
+function Input(props: ComponentProps<typeof TextInput> & { label: string }) {
   const { label, ...inputProps } = props;
   return (
     <View style={styles.field}>
@@ -267,6 +311,23 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
+function FeatureTile({ title, detail }: { title: string; detail: string }) {
+  return (
+    <View style={styles.featureTile}>
+      <Text style={styles.featureTitle}>{title}</Text>
+      <Text style={styles.featureDetail}>{detail}</Text>
+    </View>
+  );
+}
+
+function StatusPill({ label, tone }: { label: string; tone: 'good' | 'neutral' }) {
+  return (
+    <View style={[styles.pill, tone === 'good' ? styles.goodPill : styles.neutralPill]}>
+      <Text style={[styles.pillText, tone === 'good' ? styles.goodPillText : styles.neutralPillText]}>{label}</Text>
+    </View>
+  );
+}
+
 function ListPanel({
   title,
   empty,
@@ -295,21 +356,44 @@ function ListPanel({
   );
 }
 
+const palette = {
+  surface: '#f4f2ee',
+  card: '#ffffff',
+  ink: '#1c2326',
+  muted: '#5f6a70',
+  border: '#dfddd5',
+  green: '#0f766e',
+  greenSoft: '#e0f4f1',
+  amberSoft: '#fff4dc',
+  amber: '#986314',
+};
+
+const baseShadow = Platform.select({
+  ios: {
+    shadowColor: '#1c2326',
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  android: { elevation: 2 },
+  default: {},
+});
+
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#f6f7f9',
+    backgroundColor: palette.surface,
   },
   centered: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f6f7f9',
+    backgroundColor: palette.surface,
   },
   content: {
     padding: 18,
     paddingTop: Platform.OS === 'web' ? 86 : 18,
-    gap: 16,
+    gap: 14,
     maxWidth: 980,
     width: '100%',
     alignSelf: 'center',
@@ -328,51 +412,71 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   kicker: {
-    color: '#007a61',
-    fontWeight: '800',
-    fontSize: 14,
+    color: palette.green,
+    fontWeight: '900',
+    fontSize: 12,
     textTransform: 'uppercase',
+    letterSpacing: 0,
   },
   title: {
-    color: '#17202a',
+    color: palette.ink,
     fontSize: 30,
-    fontWeight: '800',
+    fontWeight: '900',
     lineHeight: 36,
   },
   subtle: {
-    color: '#596674',
+    color: palette.muted,
     fontSize: 14,
     lineHeight: 20,
   },
   segment: {
     flexDirection: 'row',
-    backgroundColor: '#e5e9ee',
+    backgroundColor: '#e7e4dc',
     padding: 4,
-    borderRadius: 8,
+    borderRadius: 10,
   },
   segmentButton: {
     flex: 1,
     paddingVertical: 10,
     alignItems: 'center',
-    borderRadius: 6,
+    borderRadius: 8,
   },
   segmentButtonActive: {
-    backgroundColor: '#ffffff',
+    backgroundColor: palette.card,
   },
   segmentText: {
-    color: '#596674',
-    fontWeight: '700',
+    color: palette.muted,
+    fontWeight: '800',
   },
   segmentTextActive: {
-    color: '#17202a',
+    color: palette.ink,
   },
   panel: {
-    backgroundColor: '#ffffff',
+    backgroundColor: palette.card,
     borderRadius: 8,
     padding: 16,
     gap: 12,
     borderWidth: 1,
-    borderColor: '#e2e6ea',
+    borderColor: palette.border,
+    ...baseShadow,
+  },
+  agentPanel: {
+    backgroundColor: palette.ink,
+    borderRadius: 8,
+    padding: 16,
+    gap: 14,
+    ...baseShadow,
+  },
+  agentText: {
+    color: '#dce5e2',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
   },
   panelHeader: {
     flexDirection: 'row',
@@ -380,9 +484,14 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   panelTitle: {
-    color: '#17202a',
+    color: palette.ink,
     fontSize: 18,
-    fontWeight: '800',
+    fontWeight: '900',
+  },
+  agentPanelTitle: {
+    color: palette.card,
+    fontSize: 18,
+    fontWeight: '900',
   },
   field: {
     gap: 6,
@@ -390,21 +499,21 @@ const styles = StyleSheet.create({
   label: {
     color: '#42505f',
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   input: {
     minHeight: 44,
     borderWidth: 1,
-    borderColor: '#cbd3dc',
+    borderColor: '#cbc8bf',
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    color: '#17202a',
-    backgroundColor: '#ffffff',
+    color: palette.ink,
+    backgroundColor: palette.card,
     fontSize: 16,
   },
   templateInput: {
-    minHeight: 144,
+    minHeight: 134,
     textAlignVertical: 'top',
   },
   chipRow: {
@@ -417,22 +526,22 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#cbd3dc',
-    backgroundColor: '#ffffff',
+    borderColor: '#cbc8bf',
+    backgroundColor: palette.card,
   },
   chipActive: {
-    backgroundColor: '#007a61',
-    borderColor: '#007a61',
+    backgroundColor: palette.green,
+    borderColor: palette.green,
   },
   chipText: {
     color: '#42505f',
-    fontWeight: '700',
+    fontWeight: '800',
   },
   chipTextActive: {
-    color: '#ffffff',
+    color: palette.card,
   },
   primaryButton: {
-    backgroundColor: '#007a61',
+    backgroundColor: palette.green,
     minHeight: 46,
     borderRadius: 8,
     alignItems: 'center',
@@ -440,8 +549,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   primaryButtonText: {
-    color: '#ffffff',
-    fontWeight: '800',
+    color: palette.card,
+    fontWeight: '900',
     fontSize: 15,
   },
   disabled: {
@@ -449,7 +558,7 @@ const styles = StyleSheet.create({
   },
   error: {
     color: '#b42318',
-    fontWeight: '700',
+    fontWeight: '800',
   },
   statsGrid: {
     flexDirection: 'row',
@@ -458,39 +567,63 @@ const styles = StyleSheet.create({
   },
   metric: {
     flexGrow: 1,
-    flexBasis: 150,
-    backgroundColor: '#ffffff',
+    flexBasis: 130,
+    backgroundColor: 'rgba(255,255,255,0.08)',
     borderRadius: 8,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#e2e6ea',
-    minHeight: 86,
+    padding: 12,
+    minHeight: 74,
     justifyContent: 'center',
   },
   metricValue: {
-    color: '#17202a',
-    fontSize: 19,
-    fontWeight: '800',
+    color: palette.card,
+    fontSize: 22,
+    fontWeight: '900',
   },
   metricLabel: {
-    color: '#596674',
+    color: '#b9c7c3',
     marginTop: 6,
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 11,
+    fontWeight: '800',
     textTransform: 'uppercase',
+  },
+  workflowGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  featureTile: {
+    flexGrow: 1,
+    flexBasis: 155,
+    backgroundColor: palette.card,
+    borderRadius: 8,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: palette.border,
+    minHeight: 118,
+    ...baseShadow,
+  },
+  featureTitle: {
+    color: palette.ink,
+    fontWeight: '900',
+    fontSize: 16,
+  },
+  featureDetail: {
+    color: palette.muted,
+    marginTop: 8,
+    lineHeight: 19,
   },
   listRow: {
     borderTopWidth: 1,
-    borderTopColor: '#edf0f3',
+    borderTopColor: '#eeeae2',
     paddingTop: 12,
     gap: 4,
   },
   rowTitle: {
-    color: '#17202a',
-    fontWeight: '800',
+    color: palette.ink,
+    fontWeight: '900',
   },
   rowDetail: {
-    color: '#596674',
+    color: palette.muted,
     lineHeight: 19,
   },
   signOutButton: {
@@ -498,11 +631,32 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#cbd3dc',
-    backgroundColor: '#ffffff',
+    borderColor: '#cbc8bf',
+    backgroundColor: palette.card,
   },
   signOutText: {
     color: '#42505f',
-    fontWeight: '800',
+    fontWeight: '900',
+  },
+  pill: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  goodPill: {
+    backgroundColor: palette.greenSoft,
+  },
+  neutralPill: {
+    backgroundColor: palette.amberSoft,
+  },
+  pillText: {
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  goodPillText: {
+    color: palette.green,
+  },
+  neutralPillText: {
+    color: palette.amber,
   },
 });

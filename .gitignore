@@ -6,6 +6,8 @@ __pycache__/
 .ruff_cache/
 .expo/
 .gradle/
+.idea/
+**/.idea/
 node_modules/
 dist/
 build/

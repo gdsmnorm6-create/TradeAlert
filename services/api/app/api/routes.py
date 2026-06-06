@@ -84,6 +84,13 @@ def current_company(user: User) -> Company:
     return user.company
 
 
+def next_invoice_number(db: Session) -> str:
+    count = db.query(Invoice).count() + 1
+    while db.scalar(select(Invoice.id).where(Invoice.number == f"TA-{count:05d}")):
+        count += 1
+    return f"TA-{count:05d}"
+
+
 def upsert_customer_by_phone(db: Session, company_id: str, phone: str) -> Customer:
     customer = db.scalar(select(Customer).where(Customer.company_id == company_id, Customer.phone == phone))
     if customer is None:
@@ -656,12 +663,11 @@ async def create_invoice(
 ) -> Invoice:
     settings = get_settings()
     company = current_company(user)
-    count = db.query(Invoice).filter(Invoice.company_id == company.id).count() + 1
     invoice = Invoice(
         company_id=company.id,
         customer_id=payload.customer_id,
         job_id=payload.job_id,
-        number=f"TA-{count:05d}",
+        number=next_invoice_number(db),
         amount_minor=payload.amount_minor,
         currency=payload.currency.upper(),
         status="payment_pending",

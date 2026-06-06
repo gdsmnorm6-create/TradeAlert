@@ -82,6 +82,47 @@ def test_jobs_invoices_sumup_and_ocr_flow(client: TestClient, auth_headers: dict
     assert receipt.json()["status"] == "processed"
 
 
+def test_invoice_numbers_are_unique_across_companies(client: TestClient, auth_headers: dict[str, str]) -> None:
+    first_customer = client.post(
+        "/api/customers",
+        headers=auth_headers,
+        json={"name": "Sarah", "phone": "07700 900333"},
+    ).json()
+    first_invoice = client.post(
+        "/api/invoices",
+        headers=auth_headers,
+        json={"customer_id": first_customer["id"], "amount_minor": 12500, "currency": "GBP"},
+    )
+    assert first_invoice.status_code == 201, first_invoice.text
+
+    second_auth = client.post(
+        "/api/auth/register",
+        json={
+            "email": "second-plumber@example.com",
+            "password": "password123",
+            "business_name": "Second Plumbing",
+            "trade": "plumber",
+            "callback_window_minutes": 10,
+            "appointment_window": "same day",
+            "business_phone": "07700 900444",
+        },
+    )
+    assert second_auth.status_code == 201, second_auth.text
+    second_headers = {"Authorization": f"Bearer {second_auth.json()['access_token']}"}
+    second_customer = client.post(
+        "/api/customers",
+        headers=second_headers,
+        json={"name": "Alex", "phone": "07700 900555"},
+    ).json()
+    second_invoice = client.post(
+        "/api/invoices",
+        headers=second_headers,
+        json={"customer_id": second_customer["id"], "amount_minor": 7500, "currency": "GBP"},
+    )
+    assert second_invoice.status_code == 201, second_invoice.text
+    assert second_invoice.json()["number"] != first_invoice.json()["number"]
+
+
 def test_openai_realtime_incoming_call_creates_voice_session(
     client: TestClient,
     auth_headers: dict[str, str],

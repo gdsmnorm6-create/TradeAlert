@@ -41,6 +41,8 @@ The v1 missed-call path is Android-first:
 
 Open `apps/android-agent` in Android Studio to build and sideload the private test app. See `apps/android-agent/README.md` for the test flow.
 
+The current v1 phone UI direction is captured in `docs/ui/tradealert-v1-phone-ui-mockup.png`.
+
 ## Docker
 
 ```powershell

@@ -54,10 +54,6 @@ export function CustomTabList(props: TabListProps) {
         </ThemedText>
 
         {props.children}
-
-        <ThemedText type="small" themeColor="textSecondary">
-          Missed calls
-        </ThemedText>
       </ThemedView>
     </View>
   );
@@ -67,30 +63,32 @@ const styles = StyleSheet.create({
   tabListContainer: {
     position: 'absolute',
     width: '100%',
-    padding: Spacing.three,
+    padding: Spacing.two,
     justifyContent: 'center',
     alignItems: 'center',
     flexDirection: 'row',
   },
   innerContainer: {
     paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.five,
-    borderRadius: Spacing.five,
+    paddingHorizontal: Spacing.two,
+    borderRadius: 22,
     flexDirection: 'row',
     alignItems: 'center',
-    flexGrow: 1,
+    flex: 1,
     gap: Spacing.two,
     maxWidth: MaxContentWidth,
   },
   brandText: {
-    marginRight: 'auto',
+    paddingHorizontal: Spacing.two,
+    flex: 1,
+    flexShrink: 1,
   },
   pressed: {
     opacity: 0.7,
   },
   tabButtonView: {
     paddingVertical: Spacing.one,
-    paddingHorizontal: Spacing.three,
+    paddingHorizontal: Spacing.two,
     borderRadius: Spacing.three,
   },
 });
